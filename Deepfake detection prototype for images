@@ -1,0 +1,90 @@
+# Step 1: Install Required Libraries
+!pip install tensorflow opencv-python numpy matplotlib
+
+import tensorflow as tf
+import cv2
+import numpy as np
+import os
+import random
+import matplotlib.pyplot as plt
+from tensorflow.keras.applications import EfficientNetB0
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import Dense, Flatten, Dropout
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from google.colab.patches import cv2_imshow
+
+#  Step 2: Enable GPU in Google Colab
+print("GPU Available:", tf.config.list_physical_devices('GPU'))
+
+#  Step 3: Create Folders for Fake and Real Images
+os.makedirs("/content/dataset/fake", exist_ok=True)
+os.makedirs("/content/dataset/real", exist_ok=True)
+
+#  Step 4: Generate 5 Sample Real Face Images
+for i in range(1, 6):  # Generate only 5 images (smaller dataset)
+    img = np.random.randint(150, 255, (224, 224, 3), dtype=np.uint8)
+    cv2.imwrite(f"/content/dataset/real/real_{i}.jpg", img)
+
+#  Step 5: Generate 5 Sample Fake Face Images
+for i in range(1, 6):
+    img = np.random.randint(0, 100, (224, 224, 3), dtype=np.uint8)
+    cv2.imwrite(f"/content/dataset/fake/fake_{i}.jpg", img)
+
+print("✅ 5 Real and 5 Fake Face Images Created!")
+
+#  Step 6: Load Dataset Using ImageDataGenerator (with Data Augmentation)
+datagen = ImageDataGenerator(
+    validation_split=0.2,
+    rescale=1./255,
+    rotation_range=15,
+    horizontal_flip=True,
+    zoom_range=0.1
+)
+
+train_gen = datagen.flow_from_directory(
+    "/content/dataset",
+    target_size=(224, 224),
+    batch_size=2,  # Small batch size
+    class_mode="binary",
+    subset="training"
+)
+
+val_gen = datagen.flow_from_directory(
+    "/content/dataset",
+    target_size=(224, 224),
+    batch_size=2,
+    class_mode="binary",
+    subset="validation"
+)
+
+#  Step 7: Define CNN Model (EfficientNetB0)
+base_model = EfficientNetB0(weights="imagenet", include_top=False, input_shape=(224, 224, 3))
+
+model = Sequential([
+    base_model,
+    Flatten(),
+    Dropout(0.5),
+    Dense(128, activation='relu'),
+    Dense(1, activation='sigmoid')  # Binary classification
+])
+
+model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+
+#  Step 8: Train the Model (Reduced Epochs for Faster Training)
+model.fit(train_gen, validation_data=val_gen, epochs=3)  # Only 3 epochs
+
+#  Step 9: Save the Model
+model.save("deepfake_model.h5")
+print("✅ Model Saved as deepfake_model.h5")
+
+#  Step 10: Function to Detect Fake Faces
+def detect_fake(img_path):
+    img = cv2.imread(img_path)
+    img = cv2.resize(img, (224, 224)) / 255.0
+    img = np.expand_dims(img, axis=0)
+    pred = model.predict(img)[0][0]
+    return "Fake Face" if pred > 0.5 else "Real Face"
+
+#  Step 11: Test on a New Image
+test_img = "/content/dataset/real/real_1.jpg"
+print("Prediction for Test Image:", detect_fake(test_img))
